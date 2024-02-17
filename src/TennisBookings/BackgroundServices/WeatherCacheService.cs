@@ -10,7 +10,7 @@ public class WeatherCacheService : BackgroundService
 	private readonly IDistributedCache<WeatherResult> _cache;
 	private readonly ILogger<WeatherCacheService> _logger;
 
-	private readonly int _minutesInCache;
+	private readonly int _minutesToCache;
 	private readonly int _refreshIntervalInSeconds;
 
 	public WeatherCacheService(IWeatherApiClient weatherApiClient,
@@ -21,11 +21,27 @@ public class WeatherCacheService : BackgroundService
 		_weatherApiClient = weatherApiClient;
 		_cache = cache;
 		_logger = logger;
-		_minutesInCache = options.Get(ExternalServicesConfiguration.WeatherApi).MinsToCache;
-		_refreshIntervalInSeconds = _minutesInCache > 1 ? (_minutesInCache - 1) * 60 :30;
+		_minutesToCache = options.Get(ExternalServicesConfiguration.WeatherApi).MinsToCache;
+		_refreshIntervalInSeconds = _minutesToCache > 1 ? (_minutesToCache - 1) * 60 :30;
 	}
-	protected override Task ExecuteAsync(CancellationToken stoppingToken)
+	protected override async Task ExecuteAsync(CancellationToken stoppingToken)
 	{
-		throw new NotImplementedException();
+		while (!stoppingToken.IsCancellationRequested)
+		{
+			var forecast = await _weatherApiClient.GetWeatherForecastAsync("Eastbourne",stoppingToken);
+
+			if (forecast is not null)
+			{
+				var currentWeather = new WeatherResult { City = "Eastbourne", Weather = forecast.Weather };
+
+				var cacheKey = $"current_weather_{DateTime.UtcNow:yyyy_MM_dd}";
+
+				_logger.LogInformation("Updating weather in cache.");
+
+				await _cache.SetAsync(cacheKey, currentWeather, _minutesToCache);
+			}
+
+			await Task.Delay(TimeSpan.FromSeconds(_refreshIntervalInSeconds), stoppingToken);
+		}
 	}
 }
